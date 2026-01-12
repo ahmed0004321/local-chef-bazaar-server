@@ -6,15 +6,13 @@ require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-
 const admin = require("firebase-admin");
 
 const serviceAccount = require("./local-chef-bazaar-client-firebase-adminsdk-fbsvc-cf7e3a980e.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
 });
-
 
 //middleware
 app.use(cors());
@@ -23,21 +21,19 @@ app.use(express.json());
 const verifyFBToken = async (req, res, next) => {
   // console.log('header in the middleware', req.headers.authorization);
   const token = req.headers.authorization;
-  if(!token){
-    return res.status(401).send({massage: 'unauthorized access!!'})
+  if (!token) {
+    return res.status(401).send({ massage: "unauthorized access!!" });
   }
-  try{
-    const tokenId = token.split(' ')[1]
+  try {
+    const tokenId = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(tokenId);
-    console.log('decoded in the token', decoded);
+    console.log("decoded in the token", decoded);
     const decoded_email = decoded.email;
     next();
-  }catch(err){
-    return res.status(401).send({massage: 'unauthorized access'})
+  } catch (err) {
+    return res.status(401).send({ massage: "unauthorized access" });
   }
-}
-
-
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster007.lqqnzz4.mongodb.net/?appName=Cluster007`;
 
@@ -60,35 +56,91 @@ async function run() {
     const mealCollections = db.collection("meals");
     const orderCollections = db.collection("myOrders");
     const mealReviewCollections = db.collection("mealReviews");
+    const favMealCollections = db.collection("favMeal");
     //here will all the apis has to be written
 
+    //fav meal
+    app.post("/favMeal/:id", async (req, res) => {
+      const mealId = req.params.id;
+      const mealExist = await mealCollections.findOne({
+        _id: new ObjectId(mealId),
+      });
+      if (!mealExist) {
+        return res.status(404).send({ message: "Meal not found" });
+      }
+
+      const alreadyFav = await favMealCollections.findOne({
+        mealId: new ObjectId(mealId),
+      });
+
+      if (alreadyFav) {
+        return res.status(409).send({ message: "Meal already favorited" });
+      }
+      const result = await favMealCollections.insertOne(mealExist);
+      res.send(result);
+    });
+
     //order related apis
-    app.post('/myOrders', async (req, res) => {
+    app.post("/myOrders", async (req, res) => {
       const orders = req.body;
-      const myOrders = {...orders, created_at: new Date()};
+      const myOrders = { ...orders, created_at: new Date() };
       const result = await orderCollections.insertOne(myOrders);
       res.send(result);
-    })
-
-
+    });
+    //showing order to dashboard
+    app.get("/dashboard/myOrders", async (req, res) => {
+      const email = req.query.email;
+      const myOrder = await orderCollections
+        .find({ userEmail: email })
+        .toArray();
+      if (myOrder.length > 0) {
+        res.send(myOrder);
+      } else {
+        res.send({ message: "No orders found for this email" });
+      }
+    });
 
     //user related apis
-    app.post('/users', async (req, res) => {
-      const user = req.body;
-      user.role = 'customer';
-      created_at: new Date();
-      const email = user.email;
-      const userExists = await userCollections.findOne({email});
-      if(userExists){
-        return res.send({massage: 'user already exist'})
-      }
-      const result = await userCollections.insertOne(user);
-      res.send(result);
-    })
 
+    app.get("/myProfile", async (req, res) => {
+      const email = req.query.email;
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      try {
+        const user = await userCollections.findOne({ email: email });
+
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        res.json(user);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Internal Server Error" });
+      }
+    });
+
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const email = user?.email;
+      // console.log(user);
+      const userExists = await userCollections.findOne({ email });
+      if (userExists) {
+        return res.send(userExists);
+      }
+      const newUser = {
+        ...user,
+        role: "customer",
+        status: "active",
+        created_at: new Date(),
+      };
+      const result = await userCollections.insertOne(newUser);
+    });
 
     //to show all meals
-    app.get("/meals", verifyFBToken, async (req, res) => {
+    app.get("/meals", async (req, res) => {
       const result = await mealCollections.find().toArray();
       res.send(result);
     });
