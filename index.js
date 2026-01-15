@@ -59,26 +59,101 @@ async function run() {
     const favMealCollections = db.collection("favMeal");
     //here will all the apis has to be written
 
+    //show my review
+    app.get("/dashboard/myReview", async (req, res) => {
+      const email = req.query.email;
+      const myReview = await mealReviewCollections
+        .find({ userEmail: email })
+        .toArray();
+      if (myReview.length > 0) {
+        res.send(myReview);
+      } else {
+        res.send([]);
+      }
+    });
+    //update review
+    app.patch("/dashboard/review/:id", async (req, res) => {
+      reviewId = req.params.id;
+      const { text } = req.body;
+      const result = await mealReviewCollections.updateOne(
+        { _id: new ObjectId(reviewId) },
+        { $set: { text } }
+      );
+      res.send(result);
+    });
+    //delete
+    app.delete("/dashboard/review/:id", async (req, res) => {
+      const reviewId = req.params.id;
+      const result = await mealReviewCollections.deleteOne({
+        _id: new ObjectId(reviewId),
+      });
+      res.send(result);
+    });
+    //getting meal name by fetching mealcollection using id
+    app.get("/dashboard/myReview/:id", async (req, res) => {
+      const mealId = req.params.id;
+      const mealIdExist = await mealCollections
+        .find({ _id: new ObjectId(mealId) })
+        .toArray();
+      if (mealIdExist) {
+        res.send(mealIdExist);
+      } else {
+        res.send({ massage: "this particular meal id do not exist" });
+      }
+    });
+
     //fav meal
     app.post("/favMeal/:id", async (req, res) => {
       const mealId = req.params.id;
+      const { email } = req.body; 
+
+      if (!email) {
+        return res.status(400).send({ message: "Email required" });
+      }
+
       const mealExist = await mealCollections.findOne({
         _id: new ObjectId(mealId),
       });
+
       if (!mealExist) {
         return res.status(404).send({ message: "Meal not found" });
       }
 
       const alreadyFav = await favMealCollections.findOne({
         mealId: new ObjectId(mealId),
+        email: email, 
       });
 
       if (alreadyFav) {
         return res.status(409).send({ message: "Meal already favorited" });
       }
-      const result = await favMealCollections.insertOne(mealExist);
+
+      const favDoc = {
+        ...mealExist,
+        email,
+        created_at: new Date(),
+      };
+
+      const result = await favMealCollections.insertOne(favDoc);
+
+      res.send({ message: "Favorite added successfully", result });
+    });
+
+    //get all fav meal
+    app.get("/favMeal", async (req, res) => {
+      const emails = req.query.email;
+      if (!emails) {
+        res.send({ massage: "no fav meal found in this user" });
+      }
+      const result = await favMealCollections.find({email: emails}).toArray();
       res.send(result);
     });
+    //delete fav meal 
+    app.delete('/favMeal/:id', async (req, res) => {
+      const favId = req.params.id;
+      const result = await favMealCollections.deleteOne({_id: new ObjectId(favId)});
+      res.send(result);
+    })
 
     //order related apis
     app.post("/myOrders", async (req, res) => {
@@ -96,7 +171,7 @@ async function run() {
       if (myOrder.length > 0) {
         res.send(myOrder);
       } else {
-        res.send({ message: "No orders found for this email" });
+        res.send([]);
       }
     });
 
@@ -137,6 +212,7 @@ async function run() {
         created_at: new Date(),
       };
       const result = await userCollections.insertOne(newUser);
+      res.send(newUser);
     });
 
     //to show all meals
