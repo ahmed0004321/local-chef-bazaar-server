@@ -73,7 +73,7 @@ async function run() {
             .status(400)
             .send({ message: "Food Name, Chef Name, and Price are required" });
         }
-        
+
         const existingMeal = await mealCollections.findOne({
           foodName: createdMeals.foodName,
         });
@@ -98,6 +98,34 @@ async function run() {
         console.error(error);
         res.status(500).send({ message: "Internal Server Error" });
       }
+    });
+
+    //show my meals using specific chef email 
+    app.get('/dashboard/myMeals', async (req, res) => {
+      const chefEmail = req.query.email;
+      if(!chefEmail){
+        res.send({massage: 'email not found'});
+      }
+      const result = await mealCollections.find({userEmail: chefEmail}).toArray();
+      res.send(result);
+    });
+
+    //update myMeals 
+    app.patch('/dashboard/myMeals/:id', async (req, res) => {
+      const mealId = req.params.id;
+      const updatedMeal = req.body;
+      if(!mealId){
+        res.send('meal Id not found');
+      }
+      const result = await mealCollections.updateOne({_id: new ObjectId(mealId)}, 
+     {$set: updatedMeal});
+     res.send(result);
+    });
+    //delete myMeals
+    app.delete('/dashboard/myMeals/:id', async (req, res) => {
+      const mealId = req.params.id;
+      const result = await mealCollections.deleteOne({_id: new ObjectId(mealId)});
+      res.send(result);
     });
 
     //show my review
