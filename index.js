@@ -59,6 +59,47 @@ async function run() {
     const favMealCollections = db.collection("favMeal");
     //here will all the apis has to be written
 
+    //chef apis
+    //inserting created meals to the mealscollections
+    app.post("/dashboard/createMeals", async (req, res) => {
+      try {
+        const createdMeals = req.body;
+        if (
+          !createdMeals.foodName ||
+          !createdMeals.chefName ||
+          !createdMeals.price
+        ) {
+          return res
+            .status(400)
+            .send({ message: "Food Name, Chef Name, and Price are required" });
+        }
+        
+        const existingMeal = await mealCollections.findOne({
+          foodName: createdMeals.foodName,
+        });
+        if (existingMeal) {
+          return res
+            .status(409)
+            .send({ message: "Meal with this name already exists" });
+        }
+
+        const meal = {
+          ...createdMeals,
+          createdAt: new Date(),
+        };
+
+        const result = await mealCollections.insertOne(meal);
+
+        res.send({
+          message: "Meal added successfully",
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
     //show my review
     app.get("/dashboard/myReview", async (req, res) => {
       const email = req.query.email;
@@ -105,7 +146,7 @@ async function run() {
     //fav meal
     app.post("/favMeal/:id", async (req, res) => {
       const mealId = req.params.id;
-      const { email } = req.body; 
+      const { email } = req.body;
 
       if (!email) {
         return res.status(400).send({ message: "Email required" });
@@ -121,7 +162,7 @@ async function run() {
 
       const alreadyFav = await favMealCollections.findOne({
         mealId: new ObjectId(mealId),
-        email: email, 
+        email: email,
       });
 
       if (alreadyFav) {
@@ -145,15 +186,17 @@ async function run() {
       if (!emails) {
         res.send({ massage: "no fav meal found in this user" });
       }
-      const result = await favMealCollections.find({email: emails}).toArray();
+      const result = await favMealCollections.find({ email: emails }).toArray();
       res.send(result);
     });
-    //delete fav meal 
-    app.delete('/favMeal/:id', async (req, res) => {
+    //delete fav meal
+    app.delete("/favMeal/:id", async (req, res) => {
       const favId = req.params.id;
-      const result = await favMealCollections.deleteOne({_id: new ObjectId(favId)});
+      const result = await favMealCollections.deleteOne({
+        _id: new ObjectId(favId),
+      });
       res.send(result);
-    })
+    });
 
     //order related apis
     app.post("/myOrders", async (req, res) => {
