@@ -60,6 +60,28 @@ async function run() {
     //here will all the apis has to be written
 
     //chef apis
+    //getting customer order request for specific chef
+    app.get('/dashboard/orderRequest/:id', async (req, res) => {
+      const chefId = req.params.id;
+      if(!chefId){
+        res.send({massage: 'id not found'});
+      }
+      const result = await orderCollections.find({chefId}).toArray();
+      res.send(result);
+    });
+    //updating order status
+    app.patch("/dashboard/orderUpdate/:id", async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body;
+    
+      const result = await orderCollections.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { orderStatus: status } }
+      );
+    
+      res.send(result);
+    });
+    
     //inserting created meals to the mealscollections
     app.post("/dashboard/createMeals", async (req, res) => {
       try {
