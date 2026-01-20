@@ -57,31 +57,140 @@ async function run() {
     const orderCollections = db.collection("myOrders");
     const mealReviewCollections = db.collection("mealReviews");
     const favMealCollections = db.collection("favMeal");
+    const roleRequestCollections = db.collection("roleRequest");
     //here will all the apis has to be written
+
+    //reject role request
+    app.patch("/dashboard/rejectRoleRequest/:id", async (req, res) => {
+      const requestId = req.params.id;
+      const request = await roleRequestCollections.findOne({
+        _id: new ObjectId(requestId),
+      });
+      if (!request) {
+        return res.status(404).send({ message: "Request not found" });
+      }
+      const updateRejectedStatus = await roleRequestCollections.updateOne(
+        { _id: new ObjectId(requestId) },
+        { $set: { requestStatus: "rejected" } },
+      );
+      res.send({
+        message: "Request rejected successfully",
+        updateRejectedStatus,
+      });
+    });
+
+    //be a chef approval from admin
+    app.patch("/dashboard/beChef/:id", async (req, res) => {
+      try {
+        const requestId = req.params.id;
+
+        const request = await roleRequestCollections.findOne({
+          _id: new ObjectId(requestId),
+        });
+
+        if (!request) {
+          return res.status(404).send({ message: "Request not found" });
+        }
+
+        if (request.requestStatus !== "pending") {
+          return res.send({ message: "Request already processed" });
+        }
+
+        const chefId = "chef-" + Math.floor(1000 + Math.random() * 9000);
+
+        const updateUser = await userCollections.updateOne(
+          { _id: new ObjectId(request.userId) },
+          { $set: { role: request.requestType, chefId } },
+        );
+
+        if (updateUser.matchedCount === 0) {
+          return res.status(404).send({ message: "User not found" });
+        }
+
+        await roleRequestCollections.updateOne(
+          { _id: new ObjectId(requestId) },
+          { $set: { requestStatus: "approved" } },
+        );
+
+        res.send({ message: "Chef approved successfully" });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    //admin page apis
+    app.get("/dashboard/manageUser", async (req, res) => {
+      const result = await userCollections.find().toArray();
+      res.send(result);
+    });
+
+    //get role request
+    app.get("/dashboard/getRoleRequest", async (req, res) => {
+      const result = await roleRequestCollections.find().toArray();
+      res.send(result);
+    });
+
+    //role chef post
+    app.post("/dashboard/roleRequest/chef", async (req, res) => {
+      const roleRequest = req.body;
+      const existing = await roleRequestCollections.findOne({
+        userEmail: roleRequest.userEmail,
+        requestStatus: "pending",
+      });
+      if (existing) {
+        return res.send({ message: "Already requested", insertedId: null });
+      }
+      const result = await roleRequestCollections.insertOne(roleRequest);
+      res.send(result);
+    });
+    //role admin request
+    app.post("/dashboard/roleRequest/admin", async (req, res) => {
+      const roleRequest = req.body;
+      const existing = await roleRequestCollections.findOne({
+        userEmail: roleRequest.userEmail,
+        requestStatus: "pending",
+      });
+      if (existing) {
+        return res.send({ message: "Already requested", insertedId: null });
+      }
+      const result = await roleRequestCollections.insertOne(roleRequest);
+      res.send(result);
+    });
+
+    //user role update to make fraud
+    app.patch("/dashboard/manageUserRoleFraud/:id", async (req, res) => {
+      const userId = req.params.id;
+      const result = await userCollections.updateOne(
+        { _id: new ObjectId(userId) },
+        { $set: { status: "fraud" } },
+      );
+      res.send(result);
+    });
 
     //chef apis
     //getting customer order request for specific chef
-    app.get('/dashboard/orderRequest/:id', async (req, res) => {
+    app.get("/dashboard/orderRequest/:id", async (req, res) => {
       const chefId = req.params.id;
-      if(!chefId){
-        res.send({massage: 'id not found'});
+      if (!chefId) {
+        res.send({ massage: "id not found" });
       }
-      const result = await orderCollections.find({chefId}).toArray();
+      const result = await orderCollections.find({ chefId }).toArray();
       res.send(result);
     });
     //updating order status
     app.patch("/dashboard/orderUpdate/:id", async (req, res) => {
       const { id } = req.params;
       const { status } = req.body;
-    
+
       const result = await orderCollections.updateOne(
         { _id: new ObjectId(id) },
-        { $set: { orderStatus: status } }
+        { $set: { orderStatus: status } },
       );
-    
+
       res.send(result);
     });
-    
+
     //inserting created meals to the mealscollections
     app.post("/dashboard/createMeals", async (req, res) => {
       try {
@@ -122,31 +231,37 @@ async function run() {
       }
     });
 
-    //show my meals using specific chef email 
-    app.get('/dashboard/myMeals', async (req, res) => {
+    //show my meals using specific chef email
+    app.get("/dashboard/myMeals", async (req, res) => {
       const chefEmail = req.query.email;
-      if(!chefEmail){
-        res.send({massage: 'email not found'});
+      if (!chefEmail) {
+        res.send({ massage: "email not found" });
       }
-      const result = await mealCollections.find({userEmail: chefEmail}).toArray();
+      const result = await mealCollections
+        .find({ userEmail: chefEmail })
+        .toArray();
       res.send(result);
     });
 
-    //update myMeals 
-    app.patch('/dashboard/myMeals/:id', async (req, res) => {
+    //update myMeals
+    app.patch("/dashboard/myMeals/:id", async (req, res) => {
       const mealId = req.params.id;
       const updatedMeal = req.body;
-      if(!mealId){
-        res.send('meal Id not found');
+      if (!mealId) {
+        res.send("meal Id not found");
       }
-      const result = await mealCollections.updateOne({_id: new ObjectId(mealId)}, 
-     {$set: updatedMeal});
-     res.send(result);
+      const result = await mealCollections.updateOne(
+        { _id: new ObjectId(mealId) },
+        { $set: updatedMeal },
+      );
+      res.send(result);
     });
     //delete myMeals
-    app.delete('/dashboard/myMeals/:id', async (req, res) => {
+    app.delete("/dashboard/myMeals/:id", async (req, res) => {
       const mealId = req.params.id;
-      const result = await mealCollections.deleteOne({_id: new ObjectId(mealId)});
+      const result = await mealCollections.deleteOne({
+        _id: new ObjectId(mealId),
+      });
       res.send(result);
     });
 
@@ -168,7 +283,7 @@ async function run() {
       const { text } = req.body;
       const result = await mealReviewCollections.updateOne(
         { _id: new ObjectId(reviewId) },
-        { $set: { text } }
+        { $set: { text } },
       );
       res.send(result);
     });
@@ -353,7 +468,7 @@ async function run() {
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
+      "Pinged your deployment. You successfully connected to MongoDB!",
     );
   } finally {
   }
