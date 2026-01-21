@@ -404,6 +404,20 @@ async function run() {
         res.status(500).json({ error: "Internal Server Error" });
       }
     });
+    //count user
+    app.get("/dashboard/countUser", async (req, res) => {
+      const result = await userCollections.find().toArray();
+      res.send(result);
+    });
+
+    //getting panding orders
+    app.get("/dashboard/pendingOrder", async (req, res) => {
+      const result = await orderCollections.find().toArray();
+      res.send(result);
+    });
+
+    //for recharts
+    // GET /dashboard/metrics
 
     app.post("/users", async (req, res) => {
       const user = req.body;
