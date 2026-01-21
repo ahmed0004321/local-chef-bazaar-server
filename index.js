@@ -2,6 +2,7 @@ const express = require("express");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_KEY);
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -59,6 +60,73 @@ async function run() {
     const favMealCollections = db.collection("favMeal");
     const roleRequestCollections = db.collection("roleRequest");
     //here will all the apis has to be written
+
+    //payment integration related api
+    app.get("/dashboard/orderPayment/:id", async (req, res) => {
+      const orderId = req.params.id;
+      if (!orderId) {
+        res.send({ massage: "id not found" });
+      }
+      const result = await orderCollections.findOne({
+        _id: new ObjectId(orderId),
+      });
+      res.send(result);
+    });
+
+    app.post("/create-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      const amount = parseFloat(paymentInfo.price)*100;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price_data: {
+              currency: 'USD',
+              unit_amount: amount,
+              product_data: {
+                name: paymentInfo.mealName
+              }
+            },
+            quantity: 1,
+          },
+        ],
+        customer_email: paymentInfo.userEmail,
+        mode: "payment",
+        metadata: {
+          orderId: paymentInfo.orderId,
+        },
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/orderPayment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/orderPayment-cancelled`,
+      });
+      console.log(session);
+      res.send({url: session.url})
+    });
+
+    app.patch('/payment-success', async (req, res) => {
+      const sessionId = req.query.session_id;
+      console.log(sessionId);
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      console.log('retrived session', session);
+      if(session.payment_status === 'paid'){
+        const id = session.metadata.orderId;
+        const query = {_id: new ObjectId(id)};
+        const update = {
+          $set: {
+            paymentStatus: 'paid',
+          }
+        }
+        const result = await orderCollections.updateOne(query, update);
+        res.send(result);
+      }
+      res.send({success: true});
+    })
+
+
+
+
+
+
+
 
     //reject role request
     app.patch("/dashboard/rejectRoleRequest/:id", async (req, res) => {
@@ -438,10 +506,30 @@ async function run() {
     });
 
     //to show all meals
+    // GET /meals?page=1&limit=10
     app.get("/meals", async (req, res) => {
-      const result = await mealCollections.find().toArray();
-      res.send(result);
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const totalMeals = await mealCollections.countDocuments();
+        const meals = await mealCollections
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.send({
+          meals,
+          totalMeals,
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server Error" });
+      }
     });
+
     //to show only 6 meals in homepage
     app.get("/mealForHome", async (req, res) => {
       const result = await mealCollections.find().limit(6).toArray();
