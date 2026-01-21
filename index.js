@@ -130,7 +130,18 @@ app.get("/dashboard/payments", async (req, res) => {
   res.send(result);
 });
 
-
+// Get all reviews in home page
+app.get("/reviews", async (req, res) => {
+  try {
+    const result = await mealReviewCollections
+      .find()
+      .sort({ created_at: -1 }) // Newest first
+      .toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch reviews" });
+  }
+});
 
 
 
