@@ -119,7 +119,16 @@ async function run() {
         res.send(result);
       }
       res.send({success: true});
-    })
+    });
+
+    // Get only successful payments
+app.get("/dashboard/payments", async (req, res) => {
+  const result = await orderCollections
+    .find({ paymentStatus: "paid" }) // or "Paid" depending on your string casing
+    .sort({ created_at: -1 }) // Show newest first
+    .toArray();
+  res.send(result);
+});
 
 
 
