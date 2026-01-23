@@ -36,6 +36,25 @@ const verifyFBToken = async (req, res, next) => {
   }
 };
 
+const verifyNotFraud = async (req, res, next) => {
+  const email = req.query.email || req.body.userEmail || req.body.email;
+
+  if (!email) {
+    return res
+      .status(400)
+      .send({ message: "Email is required for validation" });
+  }
+
+  const user = await userCollections.findOne({ email: email });
+
+  if (user && user.status === "fraud") {
+    return res.status(403).send({
+      message: "Access Denied. Your account has been flagged as fraudulent.",
+    });
+  }
+  next();
+};
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster007.lqqnzz4.mongodb.net/?appName=Cluster007`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -75,16 +94,16 @@ async function run() {
 
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      const amount = parseFloat(paymentInfo.price)*100;
+      const amount = parseFloat(paymentInfo.price) * 100;
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
             price_data: {
-              currency: 'USD',
+              currency: "USD",
               unit_amount: amount,
               product_data: {
-                name: paymentInfo.mealName
-              }
+                name: paymentInfo.mealName,
+              },
             },
             quantity: 1,
           },
@@ -98,55 +117,50 @@ async function run() {
         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/orderPayment-cancelled`,
       });
       console.log(session);
-      res.send({url: session.url})
+      res.send({ url: session.url });
     });
 
-    app.patch('/payment-success', async (req, res) => {
+    app.patch("/payment-success", async (req, res) => {
       const sessionId = req.query.session_id;
       console.log(sessionId);
 
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log('retrived session', session);
-      if(session.payment_status === 'paid'){
+      console.log("retrived session", session);
+      if (session.payment_status === "paid") {
         const id = session.metadata.orderId;
-        const query = {_id: new ObjectId(id)};
+        const query = { _id: new ObjectId(id) };
         const update = {
           $set: {
-            paymentStatus: 'paid',
-          }
-        }
+            paymentStatus: "paid",
+          },
+        };
         const result = await orderCollections.updateOne(query, update);
         res.send(result);
       }
-      res.send({success: true});
+      res.send({ success: true });
     });
 
     // Get only successful payments
-app.get("/dashboard/payments", async (req, res) => {
-  const result = await orderCollections
-    .find({ paymentStatus: "paid" }) // or "Paid" depending on your string casing
-    .sort({ created_at: -1 }) // Show newest first
-    .toArray();
-  res.send(result);
-});
+    app.get("/dashboard/payments", async (req, res) => {
+      const result = await orderCollections
+        .find({ paymentStatus: "paid" }) // or "Paid" depending on your string casing
+        .sort({ created_at: -1 }) // Show newest first
+        .toArray();
+      res.send(result);
+    });
 
-// Get all reviews in home page
-app.get("/reviews", async (req, res) => {
-  try {
-    const result = await mealReviewCollections
-      .find()
-      .sort({ created_at: -1 }) // Newest first
-      .toArray();
-    res.send(result);
-  } catch (error) {
-    res.status(500).send({ message: "Failed to fetch reviews" });
-  }
-});
-
-
-
-
-
+    // Get all reviews in home page
+    app.get("/reviews", async (req, res) => {
+      try {
+        const result = await mealReviewCollections
+          .find()
+          .sort({ created_at: -1 })
+          .toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch reviews" });
+      }
+    });
 
     //reject role request
     app.patch("/dashboard/rejectRoleRequest/:id", async (req, res) => {
@@ -280,7 +294,7 @@ app.get("/reviews", async (req, res) => {
     });
 
     //inserting created meals to the mealscollections
-    app.post("/dashboard/createMeals", async (req, res) => {
+    app.post("/dashboard/createMeals", verifyFBToken, verifyNotFraud, async (req, res) => {
       try {
         const createdMeals = req.body;
         if (
@@ -452,7 +466,7 @@ app.get("/reviews", async (req, res) => {
     });
 
     //order related apis
-    app.post("/myOrders", async (req, res) => {
+    app.post("/myOrders", verifyFBToken, verifyNotFraud, async (req, res) => {
       const orders = req.body;
       const myOrders = { ...orders, created_at: new Date() };
       const result = await orderCollections.insertOne(myOrders);
