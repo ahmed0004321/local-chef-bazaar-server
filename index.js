@@ -13,13 +13,24 @@ const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
 let serviceAccount;
 
 if (!serviceAccountVar) {
-  console.error("FIREBASE_SERVICE_ACCOUNT is not defined in environment variables!");
+  console.error(
+    "FIREBASE_SERVICE_ACCOUNT is not defined in environment variables!",
+  );
 } else if (serviceAccountVar.startsWith("{")) {
   try {
-    console.log("Initializing Firebase using JSON string from environment variable");
+    console.log(
+      "Initializing Firebase using JSON string from environment variable",
+    );
     serviceAccount = JSON.parse(serviceAccountVar);
+    serviceAccount.private_key = serviceAccount.private_key.replace(
+      /\\n/g,
+      "\n",
+    );
   } catch (e) {
-    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT as JSON:", e.message);
+    console.error(
+      "Failed to parse FIREBASE_SERVICE_ACCOUNT as JSON:",
+      e.message,
+    );
   }
 } else {
   console.log("Initializing Firebase using file path:", serviceAccountVar);
@@ -27,7 +38,9 @@ if (!serviceAccountVar) {
 }
 
 if (!serviceAccount) {
-  throw new Error("Failed to initialize Firebase Service Account. Check environment variables.");
+  throw new Error(
+    "Failed to initialize Firebase Service Account. Check environment variables.",
+  );
 }
 
 admin.initializeApp({
@@ -37,42 +50,6 @@ admin.initializeApp({
 //middleware
 app.use(cors());
 app.use(express.json());
-
-const verifyFBToken = async (req, res, next) => {
-  // console.log('header in the middleware', req.headers.authorization);
-  const token = req.headers.authorization;
-  if (!token) {
-    return res.status(401).send({ massage: "unauthorized access!!" });
-  }
-  try {
-    const tokenId = token.split(" ")[1];
-    const decoded = await admin.auth().verifyIdToken(tokenId);
-    console.log("decoded in the token", decoded);
-    const decoded_email = decoded.email;
-    next();
-  } catch (err) {
-    return res.status(401).send({ massage: "unauthorized access" });
-  }
-};
-
-const verifyNotFraud = async (req, res, next) => {
-  const email = req.query.email || req.body.userEmail || req.body.email;
-
-  if (!email) {
-    return res
-      .status(400)
-      .send({ message: "Email is required for validation" });
-  }
-
-  const user = await userCollections.findOne({ email: email });
-
-  if (user && user.status === "fraud") {
-    return res.status(403).send({
-      message: "Access Denied. Your account has been flagged as fraudulent.",
-    });
-  }
-  next();
-};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster007.lqqnzz4.mongodb.net/?appName=Cluster007`;
 
@@ -97,6 +74,21 @@ async function run() {
     const mealReviewCollections = db.collection("mealReviews");
     const favMealCollections = db.collection("favMeal");
     const roleRequestCollections = db.collection("roleRequest");
+
+    const verifyFBToken = async (req, res, next) => {
+      const token = req.headers.authorization;
+      if (!token || !token.startsWith("Bearer ")) {
+        return res.status(401).send({ message: "unauthorized access!!" });
+      }
+      try {
+        const tokenId = token.split(" ")[1];
+        const decoded = await admin.auth().verifyIdToken(tokenId);
+        req.decoded_email = decoded.email;
+        next();
+      } catch (err) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+    };
     //here will all the apis has to be written
 
     //payment integration related api
@@ -313,7 +305,7 @@ async function run() {
     });
 
     //inserting created meals to the mealscollections
-    app.post("/dashboard/createMeals", verifyFBToken, verifyNotFraud, async (req, res) => {
+    app.post("/dashboard/createMeals", async (req, res) => {
       try {
         const createdMeals = req.body;
         if (
@@ -321,9 +313,9 @@ async function run() {
           !createdMeals.chefName ||
           !createdMeals.price
         ) {
-          return res
-            .status(400)
-            .send({ message: "Food Name, Chef Name, and Price are required" });
+          return res.status(400).send({
+            message: "Food Name, Chef Name, and Price are required",
+          });
         }
 
         const existingMeal = await mealCollections.findOne({
@@ -485,7 +477,7 @@ async function run() {
     });
 
     //order related apis
-    app.post("/myOrders", verifyFBToken, verifyNotFraud, async (req, res) => {
+    app.post("/myOrders", async (req, res) => {
       const orders = req.body;
       const myOrders = { ...orders, created_at: new Date() };
       const result = await orderCollections.insertOne(myOrders);
