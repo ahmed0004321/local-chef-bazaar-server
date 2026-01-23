@@ -9,7 +9,26 @@ const port = process.env.PORT || 3000;
 
 const admin = require("firebase-admin");
 
-const serviceAccount = require("./local-chef-bazaar-client-firebase-adminsdk-fbsvc-cf7e3a980e.json");
+const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+let serviceAccount;
+
+if (!serviceAccountVar) {
+  console.error("FIREBASE_SERVICE_ACCOUNT is not defined in environment variables!");
+} else if (serviceAccountVar.startsWith("{")) {
+  try {
+    console.log("Initializing Firebase using JSON string from environment variable");
+    serviceAccount = JSON.parse(serviceAccountVar);
+  } catch (e) {
+    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT as JSON:", e.message);
+  }
+} else {
+  console.log("Initializing Firebase using file path:", serviceAccountVar);
+  serviceAccount = require(serviceAccountVar);
+}
+
+if (!serviceAccount) {
+  throw new Error("Failed to initialize Firebase Service Account. Check environment variables.");
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -69,7 +88,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     //database
     const db = client.db("local_chef_bazar_db");
     const userCollections = db.collection("users");
@@ -602,7 +621,7 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
     );
