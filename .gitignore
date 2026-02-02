@@ -1,0 +1,4 @@
+node_modules
+.env
+*.json
+local-chef-bazaar-client-firebase-adminsdk-*.json
