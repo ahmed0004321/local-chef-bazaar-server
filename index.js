@@ -99,49 +99,62 @@ async function run() {
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
       const amount = parseFloat(paymentInfo.price) * 100;
-      const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-            price_data: {
-              currency: "USD",
-              unit_amount: amount,
-              product_data: {
-                name: paymentInfo.mealName,
+
+      const siteDomain = process.env.SITE_DOMAIN || "http://localhost:5173";
+
+      // Standardized redirect URLs matching frontend Routes.jsx
+      const successUrl = `${siteDomain}/payment-success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${siteDomain}/payment-cancel`;
+
+      console.log("Stripe Redirects -> Success:", successUrl);
+      console.log("Stripe Redirects -> Cancel:", cancelUrl);
+
+      try {
+        const session = await stripe.checkout.sessions.create({
+          line_items: [
+            {
+              price_data: {
+                currency: "USD",
+                unit_amount: amount,
+                product_data: {
+                  name: paymentInfo.mealName,
+                },
               },
+              quantity: 1,
             },
-            quantity: 1,
+          ],
+          customer_email: paymentInfo.userEmail,
+          mode: "payment",
+          metadata: {
+            orderId: paymentInfo.orderId,
           },
-        ],
-        customer_email: paymentInfo.userEmail,
-        mode: "payment",
-        metadata: {
-          orderId: paymentInfo.orderId,
-        },
-        success_url: `${process.env.SITE_DOMAIN}/dashboard/orderPayment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/orderPayment-cancelled`,
-      });
-      console.log(session);
-      res.send({ url: session.url });
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+        });
+        res.send({ url: session.url });
+      } catch (error) {
+        console.error("Stripe Session Error:", error);
+        res.status(500).send({ error: error.message });
+      }
     });
 
     app.patch("/payment-success", async (req, res) => {
       const sessionId = req.query.session_id;
-      console.log(sessionId);
+      if (!sessionId) return res.status(400).send({ message: "session_id is required" });
 
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log("retrived session", session);
-      if (session.payment_status === "paid") {
-        const id = session.metadata.orderId;
-        const query = { _id: new ObjectId(id) };
-        const update = {
-          $set: {
-            paymentStatus: "paid",
-          },
-        };
-        const result = await orderCollections.updateOne(query, update);
-        res.send(result);
-      } else {
-        res.send({ success: false });
+      try {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        if (session.payment_status === "paid") {
+          const id = session.metadata.orderId;
+          const query = { _id: new ObjectId(id) };
+          const update = { $set: { paymentStatus: "paid" } };
+          const result = await orderCollections.updateOne(query, update);
+          return res.send({ success: true, result });
+        }
+        res.send({ success: false, status: session.payment_status });
+      } catch (err) {
+        console.error("Payment Sync Err:", err);
+        res.status(500).send({ message: "Failed to verify payment" });
       }
     });
 
@@ -566,18 +579,33 @@ async function run() {
     app.post("/users", async (req, res) => {
       const user = req.body;
       const email = user?.email;
-      // console.log(user);
+
       const userExists = await userCollections.findOne({ email });
       if (userExists) {
+        // Update profile info if it's provided and different/missing
+        const updateDoc = {};
+        if (user.displayName && user.displayName !== userExists.displayName) {
+          updateDoc.displayName = user.displayName;
+        }
+        if (user.photoURL && user.photoURL !== userExists.photoURL) {
+          updateDoc.photoURL = user.photoURL;
+        }
+
+        if (Object.keys(updateDoc).length > 0) {
+          await userCollections.updateOne({ email }, { $set: updateDoc });
+          const updatedUser = await userCollections.findOne({ email });
+          return res.send(updatedUser);
+        }
         return res.send(userExists);
       }
+
       const newUser = {
         ...user,
         role: "customer",
         status: "active",
         created_at: new Date(),
       };
-      const result = await userCollections.insertOne(newUser);
+      await userCollections.insertOne(newUser);
       res.send(newUser);
     });
 
