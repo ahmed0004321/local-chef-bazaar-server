@@ -2,7 +2,7 @@
 
 The robust backend core for the Local Chef Bazaar marketplace, handling complex aggregations, secure transactions, and multi-role authentication.
 
-**API Server**: [https://local-chef-bazaar-server-nine.vercel.app](https://local-chef-bazaar-server-nine.vercel.app)
+**API Server**: [https://local-chef-bazaar-server-nine.vercel.app](https://local-chef-bazaar-server-kappa.vercel.app/)
 
 ## ⚙️ Core Functionality
 
