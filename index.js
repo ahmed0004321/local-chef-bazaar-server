@@ -42,7 +42,15 @@ if (serviceAccount) {
 }
 
 //middleware
-app.use(cors());
+const corsOptions = {
+  origin: [
+    "http://localhost:5173",
+    "https://local-chef-bazaar-client.vercel.app"
+  ],
+  credentials: true,
+  optionSuccessStatus: 200,
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const verifyFBToken = async (req, res, next) => {
