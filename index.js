@@ -100,7 +100,7 @@ async function run() {
       const paymentInfo = req.body;
       const amount = parseFloat(paymentInfo.price) * 100;
 
-      const siteDomain = process.env.SITE_DOMAIN || "http://localhost:5173";
+      const siteDomain = process.env.SITE_DOMAIN || "https://local-chef-bazaar-client.vercel.app";
 
       // Standardized redirect URLs matching frontend Routes.jsx
       const successUrl = `${siteDomain}/payment-success?session_id={CHECKOUT_SESSION_ID}`;
