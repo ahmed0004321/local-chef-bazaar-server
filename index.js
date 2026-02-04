@@ -89,15 +89,20 @@ const favMealCollections = db.collection("favMeal");
 const requestCollections = db.collection("requests");
 
 // Middleware to ensure DB connection
-app.use(async (req, res, next) => {
+// Connect to MongoDB once at startup
+async function connectDB() {
   try {
     await client.connect();
-    next();
+    await client.db("admin").command({ ping: 1 });
+    console.log("✅ Successfully connected to MongoDB!");
   } catch (error) {
-    console.error("Database connection error:", error);
-    res.status(500).send({ message: "Database connection error" });
+    console.error("❌ MongoDB connection failed:", error);
+    process.exit(1);
   }
-});
+}
+
+// Initialize DB connection
+connectDB();
 
 
 //payment integration related api
