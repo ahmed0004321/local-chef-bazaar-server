@@ -630,10 +630,53 @@ app.post("/users", async (req, res) => {
   res.send(newUser);
 });
 
-//get all users for admin
+//get all users for admin with stats
 app.get("/users/admin", verifyFBToken, async (req, res) => {
-  const result = await userCollections.find().toArray();
-  res.send(result);
+  try {
+    const result = await userCollections.aggregate([
+      {
+        $lookup: {
+          from: "myOrders",
+          localField: "email",
+          foreignField: "userEmail",
+          as: "orders"
+        }
+      },
+      {
+        $addFields: {
+          ordersCount: { $size: "$orders" },
+          totalSpent: {
+            $reduce: {
+              input: "$orders",
+              initialValue: 0,
+              in: {
+                $add: [
+                  "$$value",
+                  {
+                    $cond: [
+                      { $eq: ["$$this.paymentStatus", "paid"] },
+                      { $toDouble: { $ifNull: ["$$this.price", 0] } },
+                      0
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          lastOrder: { $arrayElemAt: ["$orders.created_at", -1] }
+        }
+      },
+      {
+        $project: {
+          orders: 0
+        }
+      }
+    ]).toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching users for admin:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
 });
 
 //make user fraud
@@ -645,6 +688,42 @@ app.patch("/users/fraud/:id", verifyFBToken, async (req, res) => {
       status: "fraud",
     },
   };
+  const result = await userCollections.updateOne(filter, updateDoc);
+  res.send(result);
+});
+
+// Bulk actions
+app.patch("/users/bulk-fraud", verifyFBToken, async (req, res) => {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids)) {
+    return res.status(400).send({ message: "Invalid IDs" });
+  }
+  const filter = { _id: { $in: ids.map(id => new ObjectId(id)) } };
+  const updateDoc = { $set: { status: "fraud" } };
+  const result = await userCollections.updateMany(filter, updateDoc);
+  res.send(result);
+});
+
+app.delete("/users/bulk-delete", verifyFBToken, async (req, res) => {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids)) {
+    return res.status(400).send({ message: "Invalid IDs" });
+  }
+  const filter = { _id: { $in: ids.map(id => new ObjectId(id)) } };
+  const result = await userCollections.deleteMany(filter);
+  res.send(result);
+});
+
+// Update specific user
+app.patch("/users/:id", verifyFBToken, async (req, res) => {
+  const id = req.params.id;
+  const updateData = req.body;
+  const filter = { _id: new ObjectId(id) };
+
+  // Prevent sensitive field updates if necessary, but for admin it's generally okay
+  delete updateData._id;
+
+  const updateDoc = { $set: updateData };
   const result = await userCollections.updateOne(filter, updateDoc);
   res.send(result);
 });
@@ -798,6 +877,7 @@ app.get("/mealReviews", async (req, res) => {
 app.get("/", (req, res) => {
   res.send("LocalChefBazaar Server is Running 🚀");
 });
+
 //listening the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
