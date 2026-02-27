@@ -87,6 +87,7 @@ const orderCollections = db.collection("myOrders");
 const mealReviewCollections = db.collection("mealReviews");
 const favMealCollections = db.collection("favMeal");
 const requestCollections = db.collection("requests");
+const blogCollections = db.collection("blogs");
 
 // Middleware to ensure DB connection
 // Connect to MongoDB once at startup
@@ -237,25 +238,71 @@ app.get("/admin/stats", verifyFBToken, async (req, res) => {
     const totalRevenue = revenueData.length > 0 ? revenueData[0].totalRevenue : 0;
     const totalProfit = totalRevenue * 0.2; // 20% Platform Commission
 
-    // Revenue Trends (Monthly) - Fixed with $toDate
-    const revenueTrends = await orderCollections.aggregate([
-      { $match: { paymentStatus: "paid" } },
+    // Daily Sales Trends (Last 7 Days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const dailySales = await orderCollections.aggregate([
+      {
+        $match: {
+          paymentStatus: "paid",
+          created_at: { $gte: sevenDaysAgo }
+        }
+      },
       {
         $group: {
-          _id: { $dateToString: { format: "%Y-%m", date: { $toDate: "$created_at" } } },
+          _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$created_at" } } },
           revenue: { $sum: { $toDouble: "$price" } }
         }
       },
       { $sort: { "_id": 1 } },
-      { $project: { month: "$_id", revenue: 1, _id: 0 } }
+      { $project: { date: "$_id", revenue: 1, _id: 0 } }
     ]).toArray();
 
-    // Top Selling Meals
+    // Recent Orders (with customer names)
+    const recentOrders = await orderCollections.aggregate([
+      { $sort: { created_at: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userEmail",
+          foreignField: "email",
+          as: "userDetails"
+        }
+      },
+      {
+        $project: {
+          orderId: "$_id",
+          customer: { $ifNull: [{ $arrayElemAt: ["$userDetails.displayName", 0] }, "$userEmail"] },
+          amount: "$price",
+          status: "$orderStatus",
+          date: "$created_at",
+          _id: 0
+        }
+      }
+    ]).toArray();
+
+    // Top Selling Meals (with images)
     const topMeals = await orderCollections.aggregate([
       { $group: { _id: "$mealName", sales: { $sum: 1 }, revenue: { $sum: { $toDouble: "$price" } } } },
       { $sort: { sales: -1 } },
       { $limit: 5 },
-      { $project: { name: "$_id", sales: 1, revenue: 1, _id: 0 } }
+      {
+        $lookup: {
+          from: "meals",
+          localField: "_id",
+          foreignField: "foodName",
+          as: "mealDetails"
+        }
+      },
+      {
+        $project: {
+          name: "$_id",
+          sales: 1,
+          image: { $arrayElemAt: ["$mealDetails.foodImage", 0] },
+          _id: 0
+        }
+      }
     ]).toArray();
 
     res.send({
@@ -270,7 +317,8 @@ app.get("/admin/stats", verifyFBToken, async (req, res) => {
         totalChefs
       },
       roleDistribution,
-      revenueTrends: revenueTrends.length > 0 ? revenueTrends : [{ month: "No Data", revenue: 0 }],
+      dailySales,
+      recentOrders,
       topMeals
     });
   } catch (error) {
@@ -881,6 +929,76 @@ app.get("/", (req, res) => {
 //listening the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
+});
+
+// Blog Related APIs
+app.post("/blogs", async (req, res) => {
+  try {
+    const blog = req.body;
+    const blogDoc = {
+      ...blog,
+      createdAt: new Date(),
+    };
+    const result = await blogCollections.insertOne(blogDoc);
+    res.send(result);
+  } catch (error) {
+    console.error("Error creating blog:", error);
+    res.status(500).send({ message: "Failed to create blog" });
+  }
+});
+
+app.get("/blogs/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const result = await blogCollections.findOne({ _id: new ObjectId(id) });
+    if (!result) {
+      return res.status(404).send({ message: "Blog not found" });
+    }
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching blog:", error);
+    res.status(500).send({ message: "Failed to fetch blog" });
+  }
+});
+
+app.get("/blogs", async (req, res) => {
+  try {
+    const result = await blogCollections
+      .find()
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching blogs:", error);
+    res.status(500).send({ message: "Failed to fetch blogs" });
+  }
+});
+
+app.delete("/blogs/:id", verifyFBToken, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const userEmail = req.decoded_email;
+
+    // Check if user is Admin
+    const user = await userCollections.findOne({ email: userEmail });
+    const isAdmin = user?.role === "admin";
+
+    // Ownership/Admin check
+    const blog = await blogCollections.findOne({ _id: new ObjectId(id) });
+    if (!blog) {
+      return res.status(404).send({ message: "Blog not found" });
+    }
+
+    if (blog.authorEmail !== userEmail && !isAdmin) {
+      return res.status(403).send({ message: "You are not authorized to delete this blog" });
+    }
+
+    const result = await blogCollections.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    console.error("Error deleting blog:", error);
+    res.status(500).send({ message: "Failed to delete blog" });
+  }
 });
 
 module.exports = app;
