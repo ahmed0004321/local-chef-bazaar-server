@@ -1,4 +1,5 @@
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 require("dotenv").config();
@@ -88,6 +89,8 @@ const mealReviewCollections = db.collection("mealReviews");
 const favMealCollections = db.collection("favMeal");
 const requestCollections = db.collection("requests");
 const blogCollections = db.collection("blogs");
+const subscriberCollections = db.collection("subscribers");
+const complaintCollections = db.collection("complaints");
 
 // Middleware to ensure DB connection
 // Connect to MongoDB once at startup
@@ -171,6 +174,7 @@ app.patch("/payment-success", async (req, res) => {
       const query = { _id: new ObjectId(id) };
       const update = { $set: { paymentStatus: "paid" } };
       const result = await orderCollections.updateOne(query, update);
+
       return res.send({ success: true, result });
     }
     res.send({ success: false, status: session.payment_status });
@@ -241,6 +245,7 @@ app.get("/admin/stats", verifyFBToken, async (req, res) => {
     // Daily Sales Trends (Last 7 Days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
     const dailySales = await orderCollections.aggregate([
       {
         $match: {
@@ -674,8 +679,88 @@ app.post("/users", async (req, res) => {
     status: "active",
     created_at: new Date(),
   };
+
+  // Hash password if provided
+  if (user.password) {
+    const salt = await bcrypt.genSalt(10);
+    newUser.passwordHash = await bcrypt.hash(user.password, salt);
+    // Remove plain password before saving
+    delete newUser.password;
+  }
+
   await userCollections.insertOne(newUser);
   res.send(newUser);
+});
+
+// Backend Login Verification (demonstrating bcrypt.compare)
+app.post("/users/login-verify", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).send({ message: "Email and password are required" });
+  }
+
+  const user = await userCollections.findOne({ email });
+  if (!user || !user.passwordHash) {
+    return res.status(404).send({ message: "User not found or no password registered" });
+  }
+
+  // Compare provided plain password with stored hash
+  const isMatch = await bcrypt.compare(password, user.passwordHash);
+
+  if (isMatch) {
+    res.send({ success: true, message: "Password verified professionally!" });
+  } else {
+    res.status(401).send({ success: false, message: "Invalid credentials" });
+  }
+});
+
+// Update user settings
+app.patch("/users/settings", verifyFBToken, async (req, res) => {
+  try {
+    const email = req.decoded_email;
+    const settings = req.body;
+
+    const result = await userCollections.updateOne(
+      { email },
+      { $set: { settings } },
+      { upsert: true }
+    );
+    res.send(result);
+  } catch (error) {
+    console.error("Error updating settings:", error);
+    res.status(500).send({ message: "Failed to update settings" });
+  }
+});
+
+// Change Password (logic for internal password management)
+app.patch("/users/change-password", verifyFBToken, async (req, res) => {
+  try {
+    const email = req.decoded_email;
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await userCollections.findOne({ email });
+    if (!user || !user.passwordHash) {
+      return res.status(404).send({ message: "User not found or no password set" });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).send({ message: "Incorrect current password" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const newPasswordHash = await bcrypt.hash(newPassword, salt);
+
+    const result = await userCollections.updateOne(
+      { email },
+      { $set: { passwordHash: newPasswordHash } }
+    );
+    res.send(result);
+  } catch (error) {
+    console.error("Error changing password:", error);
+    res.status(500).send({ message: "Failed to change password" });
+  }
 });
 
 //get all users for admin with stats
@@ -971,6 +1056,65 @@ app.get("/blogs", async (req, res) => {
   } catch (error) {
     console.error("Error fetching blogs:", error);
     res.status(500).send({ message: "Failed to fetch blogs" });
+  }
+});
+
+// Newsletter subscribers
+app.post("/subscribers", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).send({ message: "Email is required" });
+    }
+
+    // Check if already subscribed
+    const existing = await subscriberCollections.findOne({ email });
+    if (existing) {
+      return res.status(400).send({ message: "You are already subscribed!" });
+    }
+
+    const result = await subscriberCollections.insertOne({
+      email,
+      subscribedAt: new Date(),
+    });
+    res.send(result);
+  } catch (error) {
+    console.error("Error subscribing:", error);
+    res.status(500).send({ message: "Failed to subscribe" });
+  }
+});
+
+// Complaints functionality
+app.post("/complaints", async (req, res) => {
+  try {
+    const complaint = req.body;
+    const result = await complaintCollections.insertOne({
+      ...complaint,
+      status: "pending",
+      createdAt: new Date(),
+    });
+    res.send(result);
+  } catch (error) {
+    console.error("Error submitting complaint:", error);
+    res.status(500).send({ message: "Failed to submit complaint" });
+  }
+});
+
+app.get("/complaints", verifyFBToken, async (req, res) => {
+  try {
+    const userEmail = req.decoded_email;
+    const user = await userCollections.findOne({ email: userEmail });
+    if (user?.role !== "admin") {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+    const result = await complaintCollections
+      .find()
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching complaints:", error);
+    res.status(500).send({ message: "Failed to fetch complaints" });
   }
 });
 
